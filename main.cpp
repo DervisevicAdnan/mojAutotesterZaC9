@@ -16,7 +16,7 @@ ZADACI
 2. izvrsavanje komandi u terminalu                                  uspjesno
 3. citanje teksta iz terminala (prepravljeno da cita iz datoteke)   uspjesno
 4. modifikovanje cpp fajla                                          uspjesno
-5. uporedjivanje ocekivanog rezultata
+5. uporedjivanje ocekivanog rezultata                               uspjesno
 6. pronaci potrebne valgrind komande
 7. sastaviti sve
 8. dodati da se moze birati path do autotesta i cpp fajla
@@ -87,13 +87,116 @@ void modifikujFajl(Test &test){
 }
 
 void izvrsiKomandu(){
-        int result = system("ls -l > proba.txt"); // Izvrši komandu "ls -l" za listanje sadržaja direktorija
+        int result = system("g++ code.cpp -o output.out && ./output.out > izlaz.txt");
 
     if (result == 0) {
         std::cout << "Komanda je uspješno izvršena.\n";
     } else {
         std::cerr << "Greška pri izvođenju komande.\n";
     }
+}
+
+std::string _longest_common_substring(const std::string& str1, const std::string& str2) {
+    int m = str1.length();
+    int n = str2.length();
+
+    // Create a table to store lengths of common substrings
+    int dp[m + 1][n + 1];
+    memset(dp, 0, sizeof(dp));  // Initialize all elements to 0
+
+    // Fill the table in a bottom-up manner
+    int maxLength = 0;
+    int endPosition = 0;  // Index of the last character in the longest substring
+    for (int i = 1; i <= m; i++) {
+        for (int j = 1; j <= n; j++) {
+            if (str1[i - 1] == str2[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+
+                if (dp[i][j] > maxLength) {
+                    maxLength = dp[i][j];
+                    endPosition = i - 1;  // Track the end position for extraction
+                }
+            }
+        }
+    }
+
+    // Extract the longest common substring from the table
+    return str1.substr(endPosition - maxLength + 1, maxLength);
+}
+
+
+void compare_strings(const std::string& str1, const std::string& str2) {
+    int differences = 0;
+
+    // Find the longest common substring to align the output
+    std::string lcs = _longest_common_substring(str1, str2);
+
+    // Print the differences, highlighting them
+    for (int i = 0; i < std::max(str1.length(), str2.length()); ++i) {
+        char c1 = (i < str1.length()) ? str1[i] : ' ';
+        char c2 = (i < str2.length()) ? str2[i] : ' ';
+
+        if (c1 != c2) {
+            std::cout << "\033[1;31m" << c1 << "\033[0m";  // Red for differences
+            differences++;
+        } else if (lcs.find(c1) != std::string::npos) {
+            std::cout << "\033[1m" << c1 << "\033[0m";  // Bold for common parts
+        } else {
+            std::cout << c1;  // Normal for other characters
+        }
+    }
+
+    std::cout << "\nNumber of differences: " << differences << std::endl;
+}
+
+std::string trim_newlines(const std::string& str) {
+    size_t start = str.find_first_not_of('\n');
+    size_t end = str.find_last_not_of('\n');
+
+    if (start == std::string::npos) {
+        return "";
+    }
+
+    return str.substr(start, end - start + 1);
+}
+
+std::string trim_whitespaces(const std::string& str) {
+    size_t start = str.find_first_not_of(' ');
+    size_t end = str.find_last_not_of(' ');
+
+    if (start == std::string::npos) {  // All whitespace
+        return "";
+    }
+
+    return str.substr(start, end - start + 1);
+}
+
+bool provjeriRezultat(const std::vector<std::string> &v){
+    std::ifstream ulaz("izlaz.txt");
+    std::string rezultat((std::istreambuf_iterator<char>(ulaz)), std::istreambuf_iterator<char>());
+    rezultat = trim_whitespaces(trim_newlines(rezultat));
+
+    for(const std::string &s:v){
+        //std::cout<<"                "<<s.length()<<" : "<<rezultat.length()<<std::endl;
+        if(trim_whitespaces(trim_newlines(s))==rezultat) return true;
+        //compare_strings(rezultat,trim_whitespaces(trim_newlines(s)));
+    }
+    std::cout<<"Result: "<<std::endl<<rezultat<<std::endl;
+    return false;
+}
+
+
+void testiraj(std::vector<Test>& testovi){
+    for(Test &t:testovi){
+        modifikujFajl(t);
+        izvrsiKomandu();
+        if(provjeriRezultat(t.expected)){
+            std::cout<<"Test "<<t.testNum<<": Correct"<<std::endl;
+        }else{
+            std::cout<<"Test "<<t.testNum<<": Not correct"<<std::endl;
+        }
+    }
+
 }
 
 void izlistajTestove(){
@@ -120,39 +223,34 @@ void izlistajTestove(){
             test_count++;
             continue;
         }
-        std::cout << "\nTest " << test_count++ << ":" << std::endl;
+        //std::cout << "\nTest " << test_count++ << ":" << std::endl;
 
         std::map <std::string, std::string> map;
         
         // Access and print relevant fields within each test:
         int id = test["id"];
-        std::cout << "  ID: " << id << std::endl;
-        std::cout << "  Patch:"<<std::endl;
+        //std::cout << "  ID: " << id << std::endl;
+        //std::cout << "  Patch:"<<std::endl;
         const json& patches = test["patch"];
         for(const auto& patch:patches){
-            std::cout<<"    position: "<<patch["position"]<<std::endl;
-            std::cout<<"    code: "<<std::endl<<std::string(patch["code"])<<std::endl<<std::endl;
+            //std::cout<<"    position: "<<patch["position"]<<std::endl;
+            //std::cout<<"    code: "<<std::endl<<std::string(patch["code"])<<std::endl<<std::endl;
             map[patch["position"]] = std::string(patch["code"]);
         }
 
-        std::cout<<"  Execute:"<<std::endl;
+        //std::cout<<"  Execute:"<<std::endl;
         const json& execute = test["execute"];
         const json& expections = execute["expect"];
 
         std::vector<std::string> v;
         for(const auto& expect:expections){
-            std::cout<<"    expect: "<<std::endl<<std::string(expect)<<std::endl<<std::endl;
+            //std::cout<<"    expect: "<<std::endl<<std::string(expect)<<std::endl<<std::endl;
             v.push_back(std::string(expect));
         }
-        testovi.push_back(Test(test_count, map, v));
+        testovi.push_back(Test(test_count++, map, v));
         // Access and print other fields as needed, e.g., "patch", "execute", etc.
     }
-    modifikujFajl(testovi[0]);
-}
-
-void citajIzDatoteke(){
-    std::ifstream ulaz("proba.txt");
-    while(ulaz) std::cout<<char(ulaz.get());
+    testiraj(testovi);
 }
 
 
