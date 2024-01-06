@@ -175,6 +175,7 @@ bool provjeriRezultat(const std::vector<std::string> &v){
     std::ifstream ulaz("izlaz.txt");
     std::string rezultat((std::istreambuf_iterator<char>(ulaz)), std::istreambuf_iterator<char>());
     rezultat = trim_whitespaces(trim_newlines(rezultat));
+    ulaz.close();
 
     for(const std::string &s:v){
         //std::cout<<"                "<<s.length()<<" : "<<rezultat.length()<<std::endl;
@@ -185,12 +186,44 @@ bool provjeriRezultat(const std::vector<std::string> &v){
     return false;
 }
 
+bool check_valgrind_output() {
+    // Run Valgrind on the file, redirecting output to a temporary file
+    std::string temp_output_file = "valgrind_output.tmp";
+    std::string command = "valgrind --tool=memcheck --leak-check=full --log-file=" + temp_output_file + " " + "./output.out > izlaz.txt";
+    system(command.c_str());
+
+    // Read the Valgrind output file
+    std::ifstream output_file(temp_output_file);
+    std::string output((std::istreambuf_iterator<char>(output_file)),
+                        std::istreambuf_iterator<char>());
+    output_file.close();
+
+    // Check for errors
+    std::regex error_regex(R"(==(\d+)== ERROR SUMMARY: (\d+) errors from (\d+) contexts)");
+    std::smatch error_match;
+    if (std::regex_search(output, error_match, error_regex) && error_match[2] != "0") {
+        std::cout << "Valgrind found " << error_match[2] << " errors." << std::endl;
+        return false;
+    }
+
+    // Check for memory leaks
+    std::regex leak_regex(R"(definitely lost: (\d+) bytes in (\d+) blocks)");
+    std::smatch leak_match;
+    if (std::regex_search(output, leak_match, leak_regex)) {
+        std::cout << "Valgrind found " << leak_match[1] << " bytes in " << leak_match[2] << " memory leaks." << std::endl;
+        return false;
+    }
+
+    std::cout << "Valgrind found no errors or memory leaks." << std::endl;
+    return true;
+}
+
 
 void testiraj(std::vector<Test>& testovi){
     for(Test &t:testovi){
         modifikujFajl(t);
         izvrsiKomandu();
-        if(provjeriRezultat(t.expected)){
+        if(provjeriRezultat(t.expected) && check_valgrind_output()){
             std::cout<<"Test "<<t.testNum<<": Correct"<<std::endl;
         }else{
             std::cout<<"Test "<<t.testNum<<": Not correct"<<std::endl;
@@ -208,7 +241,7 @@ void izlistajTestove(){
 
     json data;
     file >> data;
-
+    file.close();
     // Access and print the "name" parameter:
     std::string name = data["name"];
     std::cout << "Name: " << name << std::endl;
