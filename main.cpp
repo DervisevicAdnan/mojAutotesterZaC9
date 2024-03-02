@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <regex>
+#include <stack>
 
 using json = nlohmann::json;
 
@@ -12,14 +13,13 @@ using json = nlohmann::json;
 /*
 
 ZADACI
-1. citanje autotestova                                              uspjesno
-2. izvrsavanje komandi u terminalu                                  uspjesno
-3. citanje teksta iz terminala (prepravljeno da cita iz datoteke)   uspjesno
-4. modifikovanje cpp fajla                                          uspjesno
-5. uporedjivanje ocekivanog rezultata                               uspjesno
-6. pronaci potrebne valgrind komande
-7. sastaviti sve
-8. dodati da se moze birati path do autotesta i cpp fajla
+1. ispraviti bug pri modifikaciji main funkcije
+2. dodati opciju za ukljucivanje i iskljucivanje profilera
+3. prepraviti da se testovi samo jednom ucitaju
+4. dodati opciju odabira samo jednog testa, pri cemu se detaljno ispisuje provedeno testiranje, ukljucujuci razlike
+5. napraviti da se program izvrsava u beskonacnoj petlji
+6. istraziti docker i napraviti projekat u dockeru, tako da se moze izvrsavati na svim operativnim sistemima
+7. napraviti da se prvo kompajlira pravi program, radi gresaka, pa tek onda da se pokrene testiranje
 */
 
 struct Test{
@@ -29,27 +29,65 @@ struct Test{
     Test(int n, const std::map< std::string, std::string > &p, const std::vector< std::string > &exp) : testNum(n), patch(p), expected(exp){};
 };
 
+std::string::const_iterator nadji_main_kraj(const std::string &code_string, std::string::const_iterator pocetak){
+
+    /*
+    prodji kroz main iteratorom
+    dodaji otvorene viticaste na stack
+    kad naidjes na zatvorenu skini
+    provjeriti da li zadnja il poslije zadnje zatvara main
+    zanemariti sadrzaj stringova i komentara
+*/
+
+//provjeriti preklapanja komentara i stringova, komentar ima prednost
+
+    bool UCharu = false, UStringu = false, UJednolinijskomKomentaru = false, UViselinijskomKomentaru = false;
+    std::stack<char> otvoreneViticaste;
+    otvoreneViticaste.push('{');
+    auto it = pocetak-1;
+    while(!otvoreneViticaste.empty()) {
+        it++;
+        if(!UCharu && !UStringu && !UJednolinijskomKomentaru && !UViselinijskomKomentaru){
+            if(*it == '/'){
+                it++;
+                if(*it == '/') UJednolinijskomKomentaru = true;
+                if(*it == '*') UViselinijskomKomentaru = true;
+            }
+        }
+        
+        if(!UJednolinijskomKomentaru && !UViselinijskomKomentaru){
+            if(*it == '\"') UStringu = !UStringu;
+            if(*it == '\'') UCharu = !UCharu;
+        }
+
+        if(UJednolinijskomKomentaru && *it == '\n') UJednolinijskomKomentaru = false;
+        if(UViselinijskomKomentaru && *it == '*'){
+            it++;
+            if(*it == '/') UViselinijskomKomentaru = false;
+        }
+
+        if(!UCharu && !UStringu && !UJednolinijskomKomentaru && !UViselinijskomKomentaru){
+            if(*it=='{') otvoreneViticaste.push('{');
+            if(*it=='}' && !otvoreneViticaste.empty()) otvoreneViticaste.pop();
+        }
+    }
+
+    return it;
+}
+
 std::string replace_main_code(const std::string& code_string, const std::string& new_code) {
     // Find the start and end of the `main` function definition using regular expressions.
     std::regex main_start_regex(R"(\bint\s+main\s*\(([^()]*)\)\s*\{)");
-    std::regex main_end_regex(R"(\})");
 
     std::smatch main_start_match;
-    std::smatch main_end_match;
 
     std::string::const_iterator start_iter = code_string.cbegin();
     std::string::const_iterator end_iter = code_string.cend();
 
     if (std::regex_search(start_iter, end_iter, main_start_match, main_start_regex)) {
         start_iter = main_start_match[0].second; // Start of main function body
-        if (std::regex_search(start_iter, end_iter, main_end_match, main_end_regex)) {
-            end_iter = main_end_match[0].first;  // End of main function body
-
-            // Replace the code within the `main` function with the new code.
-            return code_string.substr(0, start_iter - code_string.begin()) + "\n" + new_code + "\n"  + code_string.substr(end_iter - code_string.begin());
-        } else {
-            throw std::runtime_error("Could not find closing brace for `main` function.");
-        }
+        end_iter = nadji_main_kraj(code_string,start_iter);
+        return code_string.substr(0, start_iter - code_string.begin()) + "\n" + new_code + "\n"  + code_string.substr(end_iter - code_string.begin());
     } else {
         throw std::runtime_error("Could not find `main` function definition in the code.");
     }
@@ -71,7 +109,7 @@ std::string insert_code_above_main(const std::string& starting_code, const std::
 }
 
 void modifikujFajl(Test &test){
-    std::string source("/home/ado/fakultet/asp/zadaca4/main2.cpp");
+    std::string source("/home/ado/fakultet/semestar3/asp/PZ3/zatester.cpp");
     std::ifstream kod(source);
     std::ofstream izlaz("code.cpp");
     std::string code_string((std::istreambuf_iterator<char>(kod)), std::istreambuf_iterator<char>());
@@ -220,20 +258,24 @@ bool check_valgrind_output() {
 
 
 void testiraj(std::vector<Test>& testovi){
+    bool zanemariProfiler = true;
     for(Test &t:testovi){
         modifikujFajl(t);
+
+        //privremeno zakomentarisano
+
         izvrsiKomandu();
-        if(provjeriRezultat(t.expected) && check_valgrind_output()){
-            std::cout<<"Test "<<t.testNum<<": Correct"<<std::endl;
+        if(provjeriRezultat(t.expected) && (zanemariProfiler || check_valgrind_output())){
+            std::cout<<"Test "<<t.testNum<<": " << "\033[1;32m" <<"Correct"<< "\033[0m"<<std::endl;
         }else{
-            std::cout<<"Test "<<t.testNum<<": Not correct"<<std::endl;
+            std::cout<<"Test "<<t.testNum<<": " << "\033[1;31m" <<"Not correct"<< "\033[0m"<<std::endl;
         }
     }
 
 }
 
 void izlistajTestove(){
-    std::ifstream file("/home/ado/fakultet/asp/Autotestovi/Zadaca4/autotest2");
+    std::ifstream file("/home/ado/fakultet/semestar3/asp/Autotestovi/PripremnaZadaca3/autotest2");
     if (!file.is_open()) {
         std::cerr << "Error opening JSON file!\n";
         return;
