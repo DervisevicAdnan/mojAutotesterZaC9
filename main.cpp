@@ -13,13 +13,14 @@ using json = nlohmann::json;
 /*
 
 ZADACI
-1. ispraviti bug pri modifikaciji main funkcije
+1. ispraviti bug pri modifikaciji main funkcije                 Uspjesno
 2. dodati opciju za ukljucivanje i iskljucivanje profilera
 3. prepraviti da se testovi samo jednom ucitaju
 4. dodati opciju odabira samo jednog testa, pri cemu se detaljno ispisuje provedeno testiranje, ukljucujuci razlike
 5. napraviti da se program izvrsava u beskonacnoj petlji
 6. istraziti docker i napraviti projekat u dockeru, tako da se moze izvrsavati na svim operativnim sistemima
-7. napraviti da se prvo kompajlira pravi program, radi gresaka, pa tek onda da se pokrene testiranje
+7. napraviti da se prvo kompajlira pravi program, radi gresaka, pa tek onda da se pokrene testiranje        Uspjesno
+8. napraviti da se samo jednom nadju pozicije main funkcije     Uspjesno
 */
 
 struct Test{
@@ -30,16 +31,6 @@ struct Test{
 };
 
 std::string::const_iterator nadji_main_kraj(const std::string &code_string, std::string::const_iterator pocetak){
-
-    /*
-    prodji kroz main iteratorom
-    dodaji otvorene viticaste na stack
-    kad naidjes na zatvorenu skini
-    provjeriti da li zadnja il poslije zadnje zatvara main
-    zanemariti sadrzaj stringova i komentara
-*/
-
-//provjeriti preklapanja komentara i stringova, komentar ima prednost
 
     bool UCharu = false, UStringu = false, UJednolinijskomKomentaru = false, UViselinijskomKomentaru = false;
     std::stack<char> otvoreneViticaste;
@@ -75,19 +66,20 @@ std::string::const_iterator nadji_main_kraj(const std::string &code_string, std:
     return it;
 }
 
-std::string replace_main_code(const std::string& code_string, const std::string& new_code) {
+void main_code_position(const std::string& code_string, std::string::const_iterator &start_iter, std::string::const_iterator &end_iter) {
     // Find the start and end of the `main` function definition using regular expressions.
     std::regex main_start_regex(R"(\bint\s+main\s*\(([^()]*)\)\s*\{)");
 
     std::smatch main_start_match;
 
-    std::string::const_iterator start_iter = code_string.cbegin();
-    std::string::const_iterator end_iter = code_string.cend();
+    start_iter = code_string.cbegin();
+    end_iter = code_string.cend();
 
     if (std::regex_search(start_iter, end_iter, main_start_match, main_start_regex)) {
-        start_iter = main_start_match[0].second; // Start of main function body
-        end_iter = nadji_main_kraj(code_string,start_iter);
-        return code_string.substr(0, start_iter - code_string.begin()) + "\n" + new_code + "\n"  + code_string.substr(end_iter - code_string.begin());
+        start_iter = main_start_match[0].first; 
+        end_iter = main_start_match[0].second; // Start of main function body
+        //end_iter = nadji_main_kraj(code_string,start_iter);
+        // return code_string.substr(0, start_iter - code_string.begin()) + "\n" + new_code + "\n"  + code_string.substr(end_iter - code_string.begin());
     } else {
         throw std::runtime_error("Could not find `main` function definition in the code.");
     }
@@ -108,19 +100,25 @@ std::string insert_code_above_main(const std::string& starting_code, const std::
     }
 }
 
-void modifikujFajl(Test &test){
-    std::string source("/home/ado/fakultet/semestar3/asp/PZ3/zatester.cpp");
-    std::ifstream kod(source);
+void modifikujFajl(Test &test, const std::string &code, std::string::const_iterator ispred_maina, 
+        std::string::const_iterator pocetak_maina, std::string::const_iterator kraj_maina){
+
     std::ofstream izlaz("code.cpp");
-    std::string code_string((std::istreambuf_iterator<char>(kod)), std::istreambuf_iterator<char>());
-    if(test.patch["main"].length()!=0){
-        code_string = replace_main_code(code_string, test.patch["main"]);
+
+    izlaz<<code.substr(0, ispred_maina - code.begin());
+
+    if(test.patch["above_main"].length() != 0){
+        izlaz<<test.patch["above_main"];
     }
-    if(test.patch["above_main"].length()!=0){
-        code_string = insert_code_above_main(code_string, test.patch["above_main"]);
+
+    izlaz<<code.substr(ispred_maina - code.begin(), pocetak_maina-ispred_maina);
+
+    if(test.patch["main"].length() != 0){
+        izlaz<<test.patch["main"];
     }
-    izlaz<<code_string;
-    kod.close();
+
+    izlaz<<code.substr(kraj_maina - code.begin(), code.end()-kraj_maina);
+    
     izlaz.close();
 }
 
@@ -258,20 +256,48 @@ bool check_valgrind_output() {
 
 
 void testiraj(std::vector<Test>& testovi){
+
     bool zanemariProfiler = true;
-    for(Test &t:testovi){
-        modifikujFajl(t);
 
-        //privremeno zakomentarisano
+    std::string source("/home/ado/fakultet/semestar3/asp/PZ3/zatester.cpp");
+    std::ifstream kod(source);
+    std::string code_string((std::istreambuf_iterator<char>(kod)), std::istreambuf_iterator<char>());
 
-        izvrsiKomandu();
-        if(provjeriRezultat(t.expected) && (zanemariProfiler || check_valgrind_output())){
-            std::cout<<"Test "<<t.testNum<<": " << "\033[1;32m" <<"Correct"<< "\033[0m"<<std::endl;
-        }else{
-            std::cout<<"Test "<<t.testNum<<": " << "\033[1;31m" <<"Not correct"<< "\033[0m"<<std::endl;
+    std::string::const_iterator ispred_maina;
+    std::string::const_iterator pocetak_maina;
+    std::string::const_iterator kraj_maina;
+
+    main_code_position(code_string, ispred_maina, pocetak_maina);
+    kraj_maina = nadji_main_kraj(code_string, pocetak_maina);
+
+    // dodati inicijalno kompajliranje
+
+    std::cout<<"Inicijalno kompajliranje: ";
+    std::ofstream izlaz("code.cpp");
+    izlaz<<code_string<<std::endl;
+    izlaz.close();
+    int result = system("g++ code.cpp -o output.out");
+
+    if (result == 0) {
+        std::cout << "\033[1;32m" <<"Uspjesno"<< "\033[0m"<<std::endl;
+        for(Test &t:testovi){
+            modifikujFajl(t, code_string, ispred_maina, pocetak_maina, kraj_maina);
+
+
+            izvrsiKomandu();
+            if(provjeriRezultat(t.expected) && (zanemariProfiler || check_valgrind_output())){
+                std::cout<<"Test "<<t.testNum<<": " << "\033[1;32m" <<"Correct"<< "\033[0m"<<std::endl;
+            }else{
+                std::cout<<"Test "<<t.testNum<<": " << "\033[1;31m" <<"Not correct"<< "\033[0m"<<std::endl;
+            }
         }
+    } else {
+        std::cerr << "\033[1;31m" <<"Program se ne kompajlira"<< "\033[0m"<<std::endl;
     }
+    
 
+    
+    kod.close();
 }
 
 void izlistajTestove(){
